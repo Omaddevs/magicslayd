@@ -1,0 +1,12 @@
+.env
+bot.db
+data/
+decks/
+receipts/
+ai/
+bot.db-wal
+bot.db-shm
+__pycache__/
+.libreoffice/
+.venv/
+venv/

@@ -1,0 +1,14 @@
+# HTTPS sertifikatni Caddy o'zi oladi va yangilaydi (Let's Encrypt). DOMAIN — .env dan
+{$DOMAIN} {
+	encode gzip zstd
+	# Video yuklash 25 MB gacha
+	request_body {
+		max_size 30MB
+	}
+	reverse_proxy web:3001
+}
+
+# www.magicslayd.uz → magicslayd.uz
+www.{$DOMAIN} {
+	redir https://{$DOMAIN}{uri} permanent
+}

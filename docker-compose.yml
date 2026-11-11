@@ -1,0 +1,49 @@
+# MagicSlayd — bot + web ilova + HTTPS (Caddy), bitta serverda, bitta buyruq bilan.
+# Serverda:  cd /opt/magicslayd && docker compose up -d --build
+# Sozlamalar: bot/.env (token, kalitlar) va .env (DOMAIN)
+name: magicslayd
+
+services:
+  bot:
+    build: ./bot
+    restart: unless-stopped
+    env_file: ./bot/.env
+    environment:
+      DATA_DIR: /data
+      WEBAPP_URL: https://${DOMAIN:?.env faylida DOMAIN yozilmagan}
+    volumes:
+      - ./data:/data            # bot.db va barcha loyihalar (decks, papers, articles ...)
+    logging: &logging
+      driver: json-file
+      options: { max-size: "10m", max-file: "3" }
+
+  web:
+    build: ./web
+    restart: unless-stopped
+    env_file: ./bot/.env        # BOT_TOKEN, ADMIN_ID — bot bilan bir xil
+    environment:
+      NODE_ENV: production
+      DB_PATH: /data/bot.db
+      DEV_USER_ID: ""
+      TRUST_PROXY: loopback,uniquelocal   # Caddy konteyneri — userning haqiqiy IP'si limitlar uchun
+    volumes:
+      - ./data:/data
+    depends_on: [bot]
+    logging: *logging
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports: ["80:80", "443:443"]
+    environment:
+      DOMAIN: ${DOMAIN}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data        # SSL sertifikatlar
+      - caddy_config:/config
+    depends_on: [web]
+    logging: *logging
+
+volumes:
+  caddy_data:
+  caddy_config:
