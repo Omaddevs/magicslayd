@@ -11,6 +11,7 @@ from presentation.themes import THEMES
 
 TILE_W, TILE_H = 640, 360
 GAP = 24
+COLLAGE_MAX = 2560  # kollajning eng uzun tomoni (Telegram foto uchun)
 FONT_DIRS = [Path("C:/Windows/Fonts"), Path("/usr/share/fonts/truetype/dejavu")]
 FONT_FILES = {
     "bold": ["seguibl.ttf", "segoeuib.ttf", "DejaVuSans-Bold.ttf"],
@@ -242,12 +243,17 @@ def tile(number, theme):
 def themes_collage():
     """Barcha dizaynlar bitta rasmda (PNG bytes). Bir marta yasaladi va eslab qolinadi."""
     themes = list(THEMES.values())
-    cols = 2
+    # Kvadratga yaqin to'r: Telegram rasmda eni + bo'yi ≤ 10000 va tomonlar nisbati ≤ 20 bo'lishini talab qiladi.
+    # Avval 2 ustun edi — dizaynlar ko'paygach (121 ta) rasm 1352×23448 bo'lib, Telegram uni qabul qilmay qo'ydi
+    cols = max(2, math.ceil(math.sqrt(len(themes) * TILE_H / TILE_W)))
     rows = (len(themes) + cols - 1) // cols
     canvas = Image.new("RGBA", (cols * TILE_W + (cols + 1) * GAP, rows * TILE_H + (rows + 1) * GAP), (18, 18, 24, 255))
     for i, theme in enumerate(themes):
         col, row = i % cols, i // cols
         canvas.paste(tile(i + 1, theme), (GAP + col * (TILE_W + GAP), GAP + row * (TILE_H + GAP)))
+    image = canvas.convert("RGB")
+    # Telegram baribir ~2560 px gacha kichraytiradi — o'zimiz sifatli kichraytiramiz, fayl ham yengil bo'ladi
+    image.thumbnail((COLLAGE_MAX, COLLAGE_MAX), Image.LANCZOS)
     buffer = io.BytesIO()
-    canvas.convert("RGB").save(buffer, "PNG", optimize=True)
+    image.save(buffer, "JPEG", quality=90, optimize=True)
     return buffer.getvalue()

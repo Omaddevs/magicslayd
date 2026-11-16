@@ -151,16 +151,43 @@ def pres_lang_menu():
     )
 
 
-def themes_rows(prefix, current=None, suffix=""):
+# Telegram bitta xabarda 100 tadan ortiq tugmani qabul qilmaydi (dizaynlar esa 100 dan ko'p) — sahifalarga bo'linadi
+THEMES_PER_PAGE = 20
+
+
+def theme_pages():
+    return max(1, -(-len(THEMES) // THEMES_PER_PAGE))
+
+
+def theme_page_of(key):
+    """Tanlangan dizayn turgan sahifa (bo'lmasa — birinchi)."""
+    keys = list(THEMES)
+    return keys.index(key) // THEMES_PER_PAGE if key in keys else 0
+
+
+def themes_rows(prefix, current=None, suffix="", page=None, page_prefix=""):
+    """Bitta sahifadagi dizayn tugmalari + «◀️ 2/7 ▶️» qatori. page_prefix — sahifa almashtirish tugmasi."""
+    pages = theme_pages()
+    page = theme_page_of(current) if page is None else min(max(page, 0), pages - 1)
+    start = page * THEMES_PER_PAGE
     buttons = [
         Button(text=f"{'✅ ' if key == current else ''}{i}. {theme['name']}", callback_data=f"{prefix}{key}{suffix}")
-        for i, (key, theme) in enumerate(THEMES.items(), 1)
+        for i, (key, theme) in list(enumerate(THEMES.items(), 1))[start:start + THEMES_PER_PAGE]
     ]
-    return [buttons[i:i + 2] for i in range(0, len(buttons), 2)]
+    rows = [buttons[i:i + 2] for i in range(0, len(buttons), 2)]
+    if pages > 1:
+        rows.append([
+            Button(text="◀️", callback_data=f"{page_prefix}{(page - 1) % pages}{suffix}"),
+            Button(text=f"{page + 1}/{pages}", callback_data=f"{page_prefix}{page}{suffix}"),
+            Button(text="▶️", callback_data=f"{page_prefix}{(page + 1) % pages}{suffix}"),
+        ])
+    return rows
 
 
-def pres_theme_menu(current=None):
-    return InlineKeyboardMarkup(inline_keyboard=[*themes_rows("pres_theme:", current), pres_back_row("lang")])
+def pres_theme_menu(current=None, page=None):
+    return InlineKeyboardMarkup(inline_keyboard=[
+        *themes_rows("pres_theme:", current, page=page, page_prefix="pres_tpage:"), pres_back_row("lang"),
+    ])
 
 
 def pres_author_menu():
@@ -204,10 +231,10 @@ def pres_result_menu(document_id=None):
     ])
 
 
-def pres_redesign_menu(current, document_id=None):
+def pres_redesign_menu(current, document_id=None, page=None):
     suffix = f":{document_id}" if document_id else ""
     return InlineKeyboardMarkup(inline_keyboard=[
-        *themes_rows("pres_retheme:", current, suffix),
+        *themes_rows("pres_retheme:", current, suffix, page=page, page_prefix="pres_rpage:"),
         [Button(text="⬅️ Orqaga", callback_data=f"pres_result{suffix}")],
     ])
 

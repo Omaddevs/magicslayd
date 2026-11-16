@@ -143,7 +143,8 @@ def screen(step, data, user_id):
         return head + "🌐 Taqdimot qaysi <b>tilda</b> bo'lsin?", pres_lang_menu()
     if step == "theme":
         return head + (
-            "🎨 Rasmdagi <b>dizaynlardan</b> birini tanlang 👇\n\n"
+            "🎨 Rasmdagi <b>dizaynlardan</b> birini tanlang 👇\n"
+            "<i>Raqamini yozsangiz ham bo'ladi (masalan: 25). ◀️ ▶️ — boshqa sahifalar.</i>\n\n"
             f"✨ <b>{TEMPLATE_NUMBERS}</b> — shablonlar: o'z maketi bor, rasmlari mavzuga moslab shu uslubda chiziladi."
         ), pres_theme_menu(data.get("theme"))
     if step == "author":
@@ -187,7 +188,7 @@ def screen(step, data, user_id):
 
 async def send_collage(bot: Bot, chat_id, caption, markup):
     global collage_file_id
-    photo = collage_file_id or BufferedInputFile(themes_collage(), filename="dizaynlar.png")
+    photo = collage_file_id or BufferedInputFile(themes_collage(), filename="dizaynlar.jpg")
     sent = await bot.send_photo(chat_id, photo, caption=caption, reply_markup=markup)
     collage_file_id = sent.photo[-1].file_id
     return sent
@@ -207,11 +208,16 @@ async def show_step(bot: Bot, chat_id, state: FSMContext, step, edit: Message | 
         except TelegramBadRequest:
             pass
     old_after = data.get("wid") or (edit.message_id if edit else None)
+    sent = None
     if step == "theme":
         with suppress(Exception):
             await bot.send_chat_action(chat_id, ChatAction.UPLOAD_PHOTO)
-        sent = await send_collage(bot, chat_id, text, markup)
-    else:
+        try:
+            sent = await send_collage(bot, chat_id, text, markup)
+        except Exception:
+            # Rasm yuborilmasa ham user qadamda qotib qolmasin — tanlov tugmalari matn bilan chiqadi
+            logging.exception("Dizaynlar rasmini yuborib bo'lmadi")
+    if sent is None:
         sent = await bot.send_message(chat_id, text, reply_markup=markup)
     await state.update_data(wid=sent.message_id)
     # Yangi ekran chiqqandan keyin eskisini o'chiramiz (oldin o'chirilsa, bir necha soniya bo'sh qolardi)
@@ -355,6 +361,29 @@ async def pres_theme(callback: CallbackQuery, state: FSMContext, bot: Bot):
         return
     await state.update_data(theme=theme)
     await show_step(bot, callback.message.chat.id, state, "author", callback.message)
+
+
+@router.callback_query(MakePresentation.theme, F.data.startswith("pres_tpage:"))
+async def pres_theme_page(callback: CallbackQuery, state: FSMContext):
+    page = callback.data.split(":")[1]
+    if page.isdecimal():
+        with suppress(TelegramBadRequest):  # o'sha sahifa qayta bosilsa — «message is not modified»
+            await callback.message.edit_reply_markup(
+                reply_markup=pres_theme_menu((await state.get_data()).get("theme"), int(page))
+            )
+    await callback.answer()
+
+
+@router.message(MakePresentation.theme, F.text)
+async def pres_theme_number(message: Message, state: FSMContext, bot: Bot):
+    """Kollajdagi raqamni yozib tanlash (masalan «25»)."""
+    text = message.text.strip().rstrip(".")
+    keys = list(THEMES)
+    if not (text.isdecimal() and 1 <= int(text) <= len(keys)):
+        await message.answer(f"⚠️ 1 dan {len(keys)} gacha dizayn raqamini yozing yoki tugmani bosing.")
+        return
+    await state.update_data(theme=keys[int(text) - 1])
+    await show_step(bot, message.chat.id, state, "author")
 
 
 # ===== 6. Muallif =====
@@ -619,6 +648,19 @@ async def pres_redesign(callback: CallbackQuery):
 async def pres_result(callback: CallbackQuery):
     with suppress(TelegramBadRequest):
         await callback.message.edit_reply_markup(reply_markup=pres_result_menu(document_of(callback.data)))
+    await callback.answer()
+
+
+@router.callback_query(F.data.regexp(r"^pres_rpage:\d+(:\d+)?$"))
+async def pres_redesign_page(callback: CallbackQuery):
+    parts = callback.data.split(":")
+    document_id = int(parts[2]) if len(parts) > 2 else None
+    deck = await deck_for(callback.from_user.id, document_id)
+    if not deck:
+        await callback.answer("Taqdimot ma'lumoti topilmadi. Yangi taqdimot yarating.", show_alert=True)
+        return
+    with suppress(TelegramBadRequest):
+        await callback.message.edit_reply_markup(reply_markup=pres_redesign_menu(deck["theme"], document_id, int(parts[1])))
     await callback.answer()
 
 
