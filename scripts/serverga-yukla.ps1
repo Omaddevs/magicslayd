@@ -16,17 +16,20 @@ $target = "$User@$Server"
 $excludes = @('--exclude=node_modules', '--exclude=logs', '--exclude=__pycache__', '--exclude=.libreoffice',
   '--exclude=client/dist', '--exclude=*.db-wal', '--exclude=*.db-shm')
 
+# Lokal bot har doim to'xtatiladi (yangilashda ham) - bitta token bilan ikkita bot ishlasa,
+# xabarlar ular orasida bo'linib ketadi va tugmalar «eskirgan» bo'lib qoladi
+Write-Host 'Lokal bot, web va tunnel toxtatilmoqda...' -ForegroundColor Yellow
+Get-Process cloudflared -ErrorAction SilentlyContinue | Stop-Process -Force
+Get-CimInstance Win32_Process | Where-Object {
+  ($_.Name -eq 'python.exe' -and $_.CommandLine -match 'bot\.py') -or ($_.Name -eq 'node.exe' -and $_.CommandLine -match 'src[/\\]index\.js')
+} | ForEach-Object { Stop-Process -Id $_.ProcessId -Force }
+Start-Sleep -Seconds 2
+
 if ($Yangilash) {
   # Serverdagi data/ (userlar, balanslar) va .env (DOMAIN) saqlanib qoladi
   $excludes += @("--exclude=$name/data", "--exclude=$name/.env")
 } else {
-  # Birinchi yuklash: baza ham ketadi. Lokal bot to'xtatiladi - bitta token bilan ikkita bot ishlamaydi
-  Write-Host 'Lokal bot, web va tunnel toxtatilmoqda...' -ForegroundColor Yellow
-  Get-Process cloudflared -ErrorAction SilentlyContinue | Stop-Process -Force
-  Get-CimInstance Win32_Process | Where-Object {
-    ($_.Name -eq 'python.exe' -and $_.CommandLine -match 'bot\.py') -or ($_.Name -eq 'node.exe' -and $_.CommandLine -match 'src[/\\]index\.js')
-  } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force }
-  Start-Sleep -Seconds 2
+  # Birinchi yuklash: baza ham ketadi
   $db = Join-Path $root 'data\bot.db'
   python -c "import sqlite3,sys; c=sqlite3.connect(sys.argv[1]); c.execute('PRAGMA wal_checkpoint(TRUNCATE)'); print('Baza tayyor:', c.execute('PRAGMA integrity_check').fetchone()[0])" $db
 }

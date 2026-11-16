@@ -39,7 +39,7 @@ from presentation import genimage
 from presentation.ai import LANGUAGES, GenerationError, generate_content, split_slides
 from presentation.builder import build_pptx
 from presentation.preview import themes_collage
-from presentation.storage import save_deck
+from presentation.storage import load_deck, save_deck
 from presentation.themes import THEMES
 from states import MakePresentation
 
@@ -443,12 +443,17 @@ async def send_deck(bot: Bot, chat_id, deck, celebrate=True):
         caption=result_caption(deck),
         reply_markup=pres_result_menu(),
     )
-    # «Hujjatlarim» dagi yozuv ID'si (web ilova buyurtmasiga bog'lanadi)
-    document_id = add_document(chat_id, "pres", deck["content"]["title"], sent.document.file_id)
+    # Fayl yetkazildi — bundan keyingi xatolar buyurtmani buzmasin (aks holda pul qaytib, fayl bepul ketardi)
+    try:
+        # «Hujjatlarim» dagi yozuv ID'si (web ilova buyurtmasiga bog'lanadi)
+        document_id = add_document(chat_id, "pres", deck["content"]["title"], sent.document.file_id)
+    except Exception:
+        logging.exception("Taqdimot «Hujjatlarim»ga yozilmadi")
+        return None
     try:
         # Web ilovadagi muharrir uchun loyiha diskka saqlanadi; xato bo'lsa ham fayl allaqachon yetkazilgan
         await asyncio.to_thread(save_deck, document_id, chat_id, deck, pptx)
-    except OSError:
+    except Exception:
         logging.exception("Taqdimot loyihasini saqlab bo'lmadi")
     # Hujjat ID'si faqat yuborilgandan keyin ma'lum — «✏️ Tahrirlash» tugmasi shundan keyin qo'shiladi
     with suppress(TelegramBadRequest):
@@ -469,6 +474,27 @@ async def alert_admin(bot: Bot, error):
     for admin_id in admin_ids("stats"):
         with suppress(Exception):
             await bot.send_message(admin_id, alert)
+
+
+async def deck_for(user_id, document_id):
+    """«Boshqa dizaynda» uchun taqdimot: avval xotiradan, bo'lmasa (bot qayta ishga tushgan) — diskdan."""
+    deck = last_decks.get(user_id)
+    if deck and (document_id is None or deck.get("document_id") == document_id):
+        return deck
+    if document_id is None:
+        return None
+    loaded = await asyncio.to_thread(load_deck, document_id)
+    if loaded is None or loaded[0].get("user_id") != user_id:
+        return None
+    project, content = loaded
+    slides = [slide for plan in content["plans"] for slide in plan["slides"]]
+    deck = {
+        "content": content, "theme": project["theme"], "lang": project["lang"], "author": project.get("author") or "",
+        "slides": len(slides) + FIXED_SLIDES, "fmt": "pptx", "document_id": document_id,
+        "images": sum(1 for slide in slides if slide.get("image")) + bool(content.get("cover_image")),
+    }
+    remember_deck(user_id, deck)
+    return deck
 
 
 def remember_deck(user_id, deck):
@@ -538,7 +564,7 @@ async def generate_paid(callback: CallbackQuery, state: FSMContext, bot: Bot):
         }
         with suppress(TelegramBadRequest):
             await progress.edit_text("🎨 <b>Dizayn chizilmoqda...</b>")
-        await send_deck(bot, callback.message.chat.id, deck)
+        deck["document_id"] = await send_deck(bot, callback.message.chat.id, deck)
         settle_hold(hold)
     except Exception as e:
         animation.cancel()
@@ -578,7 +604,7 @@ def document_of(data):
 
 @router.callback_query(F.data.regexp(r"^pres_redesign(:\d+)?$"))
 async def pres_redesign(callback: CallbackQuery):
-    deck = last_decks.get(callback.from_user.id)
+    deck = await deck_for(callback.from_user.id, document_of(callback.data))
     if not deck:
         await callback.answer("Taqdimot ma'lumoti topilmadi. Yangi taqdimot yarating.", show_alert=True)
         return
@@ -599,7 +625,7 @@ async def pres_result(callback: CallbackQuery):
 @router.callback_query(F.data.startswith("pres_retheme:"))
 async def pres_retheme(callback: CallbackQuery, bot: Bot):
     theme, document_id = callback.data.split(":")[1], document_of(callback.data)
-    deck = last_decks.get(callback.from_user.id)
+    deck = await deck_for(callback.from_user.id, document_id)
     if not deck or theme not in THEMES:
         await callback.answer("Taqdimot ma'lumoti topilmadi. Yangi taqdimot yarating.", show_alert=True)
         return
@@ -610,7 +636,7 @@ async def pres_retheme(callback: CallbackQuery, bot: Bot):
     with suppress(TelegramBadRequest):
         await callback.message.edit_reply_markup(reply_markup=None)
     try:
-        await send_deck(bot, callback.message.chat.id, {**deck, "theme": theme}, celebrate=False)
+        new_id = await send_deck(bot, callback.message.chat.id, {**deck, "theme": theme}, celebrate=False)
     except Exception:
         logging.exception("Taqdimotni qayta dizaynlashda xato")
         # Tugmalarni qaytaramiz — user yana urinib ko'rishi mumkin
@@ -618,7 +644,7 @@ async def pres_retheme(callback: CallbackQuery, bot: Bot):
             await callback.message.edit_reply_markup(reply_markup=pres_result_menu(document_id))
         await bot.send_message(callback.message.chat.id, "😕 Qayta chizishda xato yuz berdi. Iltimos, qayta urinib ko'ring.")
         return
-    remember_deck(callback.from_user.id, {**deck, "theme": theme})
+    remember_deck(callback.from_user.id, {**deck, "theme": theme, "document_id": new_id})
 
 
 @router.callback_query(F.data.startswith("pres_"))
