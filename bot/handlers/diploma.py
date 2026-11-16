@@ -1,6 +1,6 @@
 """🎓 Diplom ishi — bot chatidagi bosqichma-bosqich jarayon.
 
-Ma'lumotlar (12 ta savol, har biri darhol saqlanadi) → reja (bepul, tahrirlash va qayta tuzish) → tasdiqlash (to'lov)
+Ma'lumotlar (4 ta savol: mavzu, til, hajm, F.I.Sh.) → reja (bepul, tahrirlash va qayta tuzish) → tasdiqlash (to'lov)
 → kirish, boblar, xulosa (har biri alohida ko'rib chiqiladi va tasdiqlanadi) → DOCX / PDF.
 Batafsil tahrirlash (xatboshilar, rasmlar, manbalar) — web ilovada: «✏️ Ilovada ochish». Ikkalasi bitta loyihada ishlaydi."""
 import asyncio
@@ -9,7 +9,7 @@ import logging
 from contextlib import suppress
 
 from aiogram import Bot, F, Router
-from aiogram.exceptions import TelegramAPIError, TelegramBadRequest
+from aiogram.exceptions import TelegramBadRequest
 from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
@@ -33,24 +33,17 @@ class Diplom(StatesGroup):
     upload = State()  # metodik qo'llanma / material fayli kutilmoqda
 
 
-# (kalit, sarlavha, misol, majburiy) — tartib shu bo'yicha so'raladi
+# (kalit, sarlavha, misol, majburiy) — tartib shu bo'yicha so'raladi.
+# Botda faqat shu 4 tasi so'raladi; qolgan titul ma'lumotlari (universitet, rahbar va h.k.) — ixtiyoriy, web ilovada.
 FIELDS = [
     ("topic", "📝 Diplom ishi mavzusi", "Masalan: Kichik biznesda raqamli marketing strategiyalari", True),
-    ("student", "🎓 Talabaning F.I.Sh.", "Masalan: Aliyev Vali Karimovich", False),
-    ("university", "🏫 Universitet yoki institut", "Masalan: Toshkent davlat iqtisodiyot universiteti", False),
-    ("faculty", "🏛 Fakultet", "Masalan: Marketing fakulteti", False),
-    ("direction", "🧭 Ta'lim yo'nalishi", "Masalan: Marketing", False),
-    ("specialty", "🔖 Mutaxassislik nomi va kodi", "Masalan: Marketing (60410500)", False),
-    ("course_group", "👥 Kursi va guruhi", "Masalan: 4-kurs, MR-21", False),
-    ("supervisor", "👨‍🏫 Ilmiy rahbar F.I.Sh.", "Masalan: i.f.n., dots. Karimov A.B.", False),
     ("lang", "🌐 Diplom ishi tili", "", True),
     ("pages", "📄 Ish hajmi (betlar soni)", "", True),
-    ("method", "📘 Universitet metodik qo'llanmasi", "", False),
-    ("extra", "🗒 Qo'shimcha talablar", "Masalan: amaliy qism «Artel» korxonasi misolida bo'lsin", False),
+    ("student", "🎓 Talabaning F.I.Sh.", "Masalan: Aliyev Vali Karimovich", True),
 ]
 KEYS = [f[0] for f in FIELDS]
 LABEL = {f[0]: f[1] for f in FIELDS}
-MAX_LEN = {"topic": 300, "extra": 1000}
+MAX_LEN = {"topic": 300}
 PROGRESS = ("🧠 Mavzu tahlil qilinmoqda", "📘 Metodik talablar o'rganilmoqda", "📋 Reja tuzilmoqda",
             "🔎 Ilmiy manbalar qidirilmoqda", "✍️ Matn yozilmoqda", "🧩 Boblar bog'lanmoqda",
             "🖼 Sxema va jadvallar tayyorlanmoqda", "🔍 Matn tekshirilmoqda")
@@ -105,11 +98,10 @@ async def diploma_start(message: Message, state: FSMContext):
 INTRO = (
     "🎓 <b>Diplom ishi</b>\n\n"
     "Mavzudan boshlab tayyor DOCX/PDF gacha bosqichma-bosqich birga ishlaymiz:\n"
-    "1️⃣ Ma'lumotlar (12 ta savol, keyinroq to'ldirsa ham bo'ladi)\n"
-    "2️⃣ Metodik qo'llanma tahlili (yuklasangiz)\n"
-    "3️⃣ Reja — <b>bepul</b>, o'zgartirish va qayta tuzish mumkin\n"
-    "4️⃣ Kirish, har bir bob va xulosa — har birini ko'rib, tasdiqlaysiz\n"
-    "5️⃣ Haqiqiy ilmiy manbalar (OpenAlex/Crossref), sxema va jadvallar\n\n"
+    "1️⃣ Ma'lumotlar (4 ta savol: mavzu, til, hajm, F.I.Sh.)\n"
+    "2️⃣ Reja — <b>bepul</b>, o'zgartirish va qayta tuzish mumkin\n"
+    "3️⃣ Kirish, har bir bob va xulosa — har birini ko'rib, tasdiqlaysiz\n"
+    "4️⃣ Haqiqiy ilmiy manbalar (OpenAlex/Crossref), sxema va jadvallar\n\n"
     f"💰 Narxi: har bir bet <b>{money(DIPLOM_PAGE_PRICE)}</b> — pul faqat reja tasdiqlanganda bir marta yechiladi.\n\n"
 )
 
@@ -159,7 +151,7 @@ def field_prompt(diploma_id, key, project, mode):
     if not FIELDS[index][3]:
         nav.append(Button(text="⏭ Keyinroq", callback_data=cb("skip", diploma_id, key)))
     cancel = [Button(text="❌ Bekor qilish", callback_data=cb("cancel", diploma_id))]
-    current = project["info"].get(key) if key != "method" else project["method"].get("name")
+    current = project["info"].get(key)
     now = f"\n\nHozirgi qiymat: <b>{esc(current)}</b>" if current and key not in ("lang", "pages") else ""
     if key == "lang":
         langs = [Button(text=name, callback_data=cb("set", diploma_id, f"lang={k}")) for k, name in LANGUAGES.items()]
@@ -172,18 +164,12 @@ def field_prompt(diploma_id, key, project, mode):
             f"{LABEL[key]}ni tanlang yoki o'zingiz <b>{DIPLOM_PAGES_MIN}–{DIPLOM_PAGES_MAX}</b> oralig'ida son yozing.\n"
             f"💰 Har bir bet — {money(DIPLOM_PAGE_PRICE)}"
         ), InlineKeyboardMarkup(inline_keyboard=rows + [nav, cancel])
-    if key == "method":
-        return head + (
-            f"{LABEL[key]}ni <b>PDF yoki DOCX</b> fayl qilib yuboring.\n\n"
-            "AI undan tarkib, hajm, shrift, chetlar, iqtibos va adabiyotlar talablarini oladi. Yuklamasangiz — "
-            "namunaviy tuzilma taklif qilinadi (bu haqda alohida aytiladi)." + now
-        ), inline(nav, cancel)
     return head + f"✍️ {LABEL[key]}ni yozing:\n\n<i>{FIELDS[index][2]}</i>" + now, inline(nav, cancel)
 
 
 async def show_field(message: Message, state: FSMContext, diploma_id, key, mode="wizard", edit=None):
     _, project = storage.load(diploma_id)
-    await state.set_state(Diplom.upload if key == "method" else Diplom.field)
+    await state.set_state(Diplom.field)
     await state.update_data(dip_id=diploma_id, dip_field=key, dip_mode=mode)
     text, markup = field_prompt(diploma_id, key, project, mode)
     await send(message, text, markup, edit)
@@ -225,32 +211,6 @@ async def field_text(message: Message, state: FSMContext):
     else:
         service.save_info(diploma_id, {key: value})
     await after_field(message, state, diploma_id, key)
-
-
-@router.message(Diplom.upload, F.document)
-async def method_file(message: Message, state: FSMContext, bot: Bot):
-    data = await state.get_data()
-    diploma_id = data.get("dip_id")
-    document = message.document
-    if document.file_size and document.file_size > 20 * 1024 * 1024:
-        await message.answer("⚠️ Fayl 20 MB dan katta. Kichikroq faylni yoki ilova orqali yuklang.")
-        return
-    try:
-        content = (await bot.download(document.file_id)).getvalue()
-        service.save_file(diploma_id, content, document.file_name or "metodika", "method")
-    except DiplomaError as e:
-        await message.answer(f"⚠️ {html.escape(str(e))}")
-        return
-    except TelegramAPIError:
-        await message.answer("⚠️ Faylni olib bo'lmadi. Qayta yuboring.")
-        return
-    await message.answer("✅ Metodik qo'llanma saqlandi — reja tuzishda AI uni tahlil qiladi.")
-    await after_field(message, state, diploma_id, "method")
-
-
-@router.message(Diplom.upload)
-async def method_wrong(message: Message):
-    await message.answer("📎 Faylni <b>hujjat</b> sifatida yuboring (PDF yoki DOCX) yoki «⏭ Keyinroq» ni bosing.")
 
 
 @router.message(Diplom.field)
@@ -334,12 +294,13 @@ def warnings(project):
 async def show_summary(message: Message, diploma_id, edit=None):
     row, project = storage.load(diploma_id)
     info = project["info"]
-    lines = [f"{LABEL[k]}: <b>{esc(info.get(k)) or '—'}</b>" for k in KEYS if k not in ("lang", "pages", "method")]
-    lines.insert(8, f"{LABEL['lang']}: <b>{LANGUAGES.get(info['lang'], info['lang'])}</b>")
-    lines.insert(9, f"{LABEL['pages']}: <b>{info['pages']} bet</b>")
+    shown = {"lang": LANGUAGES.get(info["lang"], info["lang"]), "pages": f"{info['pages']} bet"}
+    lines = [f"{LABEL[k]}: <b>{shown.get(k) or esc(info.get(k)) or '—'}</b>" for k in KEYS]
+    if project["method"]["status"] != "none":  # ilovada yuklangan bo'lsa
+        lines.append(method_line(project))
     price = service.price_for(message.chat.id, info["pages"])
     text = (
-        "🎓 <b>Diplom ishi — ma'lumotlar</b>\n\n" + "\n".join(lines) + f"\n{method_line(project)}\n\n"
+        "🎓 <b>Diplom ishi — ma'lumotlar</b>\n\n" + "\n".join(lines) + "\n\n"
         f"💰 Narxi: <b>{money(price) if price else 'bepul (admin)'}</b> — reja tasdiqlanganda yechiladi.\n"
         + (f"\n{warnings(project)}\n" if warnings(project) else "")
         + "\nKeyingi qadam — reja (bepul). Ma'lumotlarni keyin ham o'zgartirasiz."
@@ -473,7 +434,7 @@ async def show_plan(message: Message, diploma_id, edit=None):
     price = service.price_for(message.chat.id, project["info"]["pages"])
     note = ("✅ Metodik qo'llanma talablari asosida tuzildi." if project["method"]["status"] == "analyzed" else
             "ℹ️ Metodik qo'llanma yuklanmagan — bu <b>namunaviy</b> tuzilma. Universitetingiz talablari boshqacha "
-            "bo'lsa, qo'llanmani yuklab, rejani qayta tuzing.")
+            "bo'lsa, qo'llanmani ilovada yuklab, rejani qayta tuzing.")
     approved = project["plan"]["approved"]
     text = (
         f"📋 <b>Diplom ishi rejasi</b>\n📝 {esc(project['info']['topic'])}\n\n"
